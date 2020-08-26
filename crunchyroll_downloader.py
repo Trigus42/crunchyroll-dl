@@ -319,5 +319,5 @@ if __name__ == '__main__':
 
     #Save config
     config["anime"][w_anime.config["name"]] = w_anime.config
-    with open(config_path), 'w') as config_file:
+    with open(config_path, 'w') as config_file:
         yaml.dump(config, config_file, default_flow_style=False)
