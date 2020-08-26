@@ -14,7 +14,7 @@ Most importantly it uses multithreading to significantly speed up everything.
 '-nf': Don't use filedialog; Type in paths manually  
 '-h' : Show help  
 
-'-\<YouTube-DL option\>' : You can use all youtube_dl.YoutubeDL options with a leading "-" that can be found here:  
+'-\<YouTube-DL option\>' : You can use all youtube_dl.YoutubeDL options by just adding a leading "-" that can be found here:  
                            https://github.com/ytdl-org/youtube-dl/blob/master/youtube_dl/YoutubeDL.py#L116-L323  
                            Note: 'ffmpeg_location', 'outtmpl', 'username', 'password' and 'verbose' will get overwritten.
 
