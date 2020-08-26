@@ -163,52 +163,41 @@ if __name__ == '__main__':
     arguments = sys_argv[1:]
 
     if "-h" in arguments or "--help" in arguments:
-        print('''[Arguments]
-'-un': Username for Crunchyroll login
+        print(''''-un': Username for Crunchyroll login
 '-pw': Password for Crunchyroll login
 '-c' : Path to config file
 '-v' : Verbosity [0 (Default) - 3]
 '-nf': Don't use filedialog; Type in paths manually
 '-h' : Show this help
 
-'-<YouTube-DL Option>' : You can use all youtube_dl.YoutubeDL options with a leading "-" that can be found here: 
-                        https://github.com/ytdl-org/youtube-dl/blob/master/youtube_dl/YoutubeDL.py#L116-L323
-                        Note: 'ffmpeg_location', 'outtmpl', 'username', 'password' and 'verbose' will get overwritten.
-
-[General]
-- If items from a Playlist aren't in the Overview they are not available.
-  This most likely happens because you need Crunchyroll premium to watch them.
-- If you get the error "Not Available" the playlist returned by Crunchyroll was empty. This was most likely caused by region blocking. Maybe try a VPN.
-- If you get the error "(HTTP 403) Forbidden" Crunchyroll rejected the request. This was most likely caused by IP blocking. Try a different VPN.
+'-<YouTube-DL option>' : You can use all youtube_dl.YoutubeDL options by just adding a leading "-" that can be found here: 
+                         https://github.com/ytdl-org/youtube-dl/blob/master/youtube_dl/YoutubeDL.py#L116-L323
+                         Note: 'ffmpeg_location', 'outtmpl', 'username', 'password' and 'verbose' will get overwritten.
 ''')
         exit()
 
     if "-c" in arguments:
         config_path = arguments.pop(arguments.index("-c")+1)
         arguments.remove("-c")
+        if not path.isfile(config_path):
+            config_path = path.join(path.dirname(__file__), 'config.yml')
     else:
-        config_path = None
+        config_path = path.join(path.dirname(__file__), 'config.yml')
 
     #Read config
-    if config_path and path.isfile(config_path):
+    try:
         with open(config_path, 'r') as config_file:
-            config = yaml.load(config_file, Loader=yaml.FullLoader)  
-    else:
-        if config_path:
-            print("Specified config file not found")
-        try:
-            with open(path.join(path.dirname(__file__), 'config.yml'), 'r') as config_file:
-                config = yaml.load(config_file, Loader=yaml.FullLoader)
-            print("Found config file")
-        except:
-            config = {
-                "general":{
-                    "ffmpeg_location": None,
-                    "filedialog": None
-                    },
-                "anime":{
-                    }
+            config = yaml.load(config_file, Loader=yaml.FullLoader)
+        print("Found config file")
+    except:
+        config = {
+            "general":{
+                "ffmpeg_location": None,
+                "filedialog": None
+                },
+            "anime":{
                 }
+            }
 
     #Process Arguments #2
     if "-un" in arguments:
@@ -330,5 +319,5 @@ if __name__ == '__main__':
 
     #Save config
     config["anime"][w_anime.config["name"]] = w_anime.config
-    with open(path.join(path.dirname(__file__), 'config.yml'),'w') as config_file:
+    with open(config_path), 'w') as config_file:
         yaml.dump(config, config_file, default_flow_style=False)
