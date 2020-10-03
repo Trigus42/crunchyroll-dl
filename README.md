@@ -1,5 +1,5 @@
 # crunchyroll-dl
-Tested with Python 3.8.5 and youtube-dl 2020.07.28  
+Tested with Python 3.8.5 and youtube-dl 2020.9.20 
 Required Modules: 'youtube-dl', 'PyYAML', 'PrettyTable'
 
 This program uses the crunchyroll extractor from youtube-dl.  
