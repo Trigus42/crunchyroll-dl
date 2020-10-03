@@ -144,7 +144,7 @@ class Anime():
 
         def hook(d):
             if d['status'] == 'finished':
-                print('Finished Video', self.ytdl_opts["playlist_items"])
+                print(f'Finished downloading "{path.basename(d["filename"])}"')
 
         def run(url, ytdl_opts, playlist_index, logger, hook):
             ytdl_opts.update({'logger': logger, 'progress_hooks': [hook]})
