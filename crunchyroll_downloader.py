@@ -38,6 +38,33 @@ else:
 
 ###########
 
+def ep_info(opts, url):
+    try:
+        ep_number = int(opts["playlist_items"]) #Save this variable since 'opts' changes for some reason
+        return {ep_number: youtube_dl.YoutubeDL(opts).extract_info(url, download=False)}
+    except youtube_dl.utils.DownloadError as e:
+        return {ep_number: str(e)}
+
+###########
+
+class Logger(object):
+    def __init__(self, verbosity):
+        self.verbosity = verbosity
+        self.output = ""
+
+    def debug(self, msg):
+        self.output += msg
+        if self.verbosity >= 2:
+            print(msg)
+
+    def warning(self, msg):
+        if self.verbosity >= 1:
+            print(msg)
+
+    def error(self, msg):
+        if self.verbosity >= 1:
+            print(msg)
+
 class Anime():
     def __init__(self):
         self.config = {}
@@ -47,30 +74,15 @@ class Anime():
         self.username = None
         self.password = None
 
-    class Logger(object):
-        def __init__(self, verbosity):
-            self.verbosity = verbosity
-            self.output = ""
-
-        def debug(self, msg):
-            self.output += msg
-            if self.verbosity >= 2:
-                print(msg)
-
-        def warning(self, msg):
-            if self.verbosity >= 1:
-                print(msg)
-
-        def error(self, msg):
-            if self.verbosity >= 1:
-                print(msg)
+        self.unavailable_episodes = {}
+        self.info_dict = {}
 
     def info(self):
         pl_info_opts = {
         "playlist_items":"0",
         "username": self.username,
         "password": self.password,
-        "logger": self.Logger(self.verbosity),
+        "logger": Logger(self.verbosity),
         "verbose": True if self.verbosity >= 3 else False,
         "simulate": True
         }
@@ -78,7 +90,7 @@ class Anime():
         "playlist_items": None,
         "username": self.username,
         "password": self.password,
-        "logger": self.Logger(self.verbosity),
+        "logger": Logger(self.verbosity),
         "verbose": True if self.verbosity >= 3 else False
         }
 
@@ -92,24 +104,14 @@ class Anime():
                 return e
 
         output = pl_info_opts["logger"].output
-        self.config["total_episodes"] = int(output[output.find(": Collected ")+len(": Collected "):output.find(" video ids (downloading 1 of them)", output.find(": Collected "))])
+        self.config["total_episodes"] = int(output[output.find(": Collected ")+len(": Collected "):output.find(" video ids (downloading ", output.find(": Collected "))])
 
         #Skip rest of function if anime is not available
         if self.config["total_episodes"] == 0:
             return "ERROR: Not Available"
 
         #Get info dict for every episode
-        def ep_info(opts, url):
-            try:
-                ep_number = int(opts["playlist_items"]) #Save this variable since 'opts' changes for some reason
-                return {ep_number: youtube_dl.YoutubeDL(opts).extract_info(url, download=False)}
-            except youtube_dl.utils.DownloadError as e:
-                return {ep_number: str(e)}
-
-        self.unavailable_episodes = {}
-        self.info_dict = {}
         threads = []
-
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.config["total_episodes"]) as executor:
             for i in range(1, self.config["total_episodes"]+1):
                 ep_info_opts["playlist_items"] = str(i)
@@ -118,8 +120,8 @@ class Anime():
 
         for i in concurrent.futures.as_completed(threads, timeout=15):
             result = i.result()
+            #Add unavailable episode numbers and exception to dictionary (exception is saved as str)
             if isinstance(next(iter(result.values())), str):
-                #Add unavailable episode numbers and exception to dictionary
                 self.unavailable_episodes.update(result)
             elif not self.info_dict:
                 self.info_dict = next(iter(result.values()))
@@ -143,7 +145,7 @@ class Anime():
             })
 
         def hook(d):
-            if d['status'] == 'finished':
+            if d["status"] == "finished":
                 print(f'Finished downloading "{path.basename(d["filename"])}"')
 
         def run(url, ytdl_opts, playlist_index, logger, hook):
@@ -153,7 +155,7 @@ class Anime():
             youtube_dl.YoutubeDL(ytdl_opts).download([url])
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.dl_episodes)) as executor:
-            self.dl_threads = [executor.submit(run, w_anime.config["url"], self.ytdl_opts, playlist_index, self.Logger(self.verbosity), hook) for playlist_index in self.dl_episodes]
+            self.dl_threads = [executor.submit(run, w_anime.config["url"], self.ytdl_opts, playlist_index, Logger(self.verbosity), hook) for playlist_index in self.dl_episodes]
 
 ###########
 
@@ -188,15 +190,14 @@ if __name__ == '__main__':
     try:
         with open(config_path, 'r') as config_file:
             config = yaml.load(config_file, Loader=yaml.FullLoader)
-        print("Found config file")
     except:
         config = {
             "general":{
                 "ffmpeg_location": None,
                 "filedialog": None
                 },
-            "anime":{
-                }
+            "anime": {},
+            "sessions": []
             }
 
     #Process Arguments #2
@@ -248,74 +249,96 @@ if __name__ == '__main__':
     w_anime.verbosity = verbosity
     w_anime.config["downloaded"] = []
 
-    #Choose anime
-    print("Choose an anime or enter a URL:")
-    for number, name in zip(range(len(config["anime"])), config["anime"]):
-        print(f"{number}. {name}")
-    choice = input("> ")
+    if "sessions" in config:
+        if config["sessions"]:
+            for i, n in zip(config["sessions"], range(len(config["sessions"]))):
+                temp = PrettyTable(["ID", "Anime", "Episodes"])
+                temp.add_row([n, *i])
+            print("You've got some unfinished downloads:\n", temp)
+            session_id = input("If you want to continue one, enter it's ID > ")
 
-    if not choice.isnumeric():
-        w_anime.config["url"] = choice
-
-        #Get infos about the anime
-        while(True):
-            info_return = w_anime.info()
-            if info_return:
-                print(info_return)
-                if input("Try again? (y/N) > ").upper() != "Y":
-                    exit()
-            else:
-                break
-
-        #Choose download folder
-        if not filedialog:
-            w_anime.config["download_path"] = input("Choose a download folder > ")
-        else:
-            w_anime.config["download_path"] = filedialog.askdirectory(title = "Download folder")
-
-        #Choose output syntax
-        temp = input("Type in output syntax; Leave blank for default > ")
-        if temp:
-            w_anime.config["output_syntax"] = temp
-        else:
-            w_anime.config["output_syntax"] = "[%(playlist_index)s] %(series)s - S%(season_number)sE%(episode_number)s - %(episode)s.%(ext)s"
+    if "session_id" in globals() and session_id != "":
+        session = config["sessions"][int(session_id)]
+        w_anime.config = config["anime"][session[0]]
+        w_anime.dl_episodes = session[1]
     else:
-        choice = int(choice)
-        w_anime.config = config["anime"][list(config["anime"])[choice]]
+        #Choose anime
+        print("Choose an anime or enter a URL:")
+        for number, name in zip(range(len(config["anime"])), config["anime"]):
+            print(f"{number}. {name}")
+        choice = input("> ")
 
-    #Process YTDL options
-    w_anime.config["advanced"] = {
-    "postprocessors": [{'key': 'FFmpegEmbedSubtitle'}],
-    "ignoreerrors": True,
-    "nooverwrites": True,
-    "allsubtitles": True,
-    "writesubtitles": True
-    }
-    n = 0
-    for i in arguments:
-        if "-" in i:
-            w_anime.config["advanced"][i[i.index("-")+1:]] = arguments[n+1]
-        n+=1
+        if not choice.isnumeric():
+            w_anime.config["url"] = choice
 
-    #More config
-    w_anime.ytdl_opts.update(w_anime.config["advanced"])
+            #Get infos about the anime
+            while(True):
+                info_return = w_anime.info()
+                if info_return:
+                    print(info_return)
+                    if input("Try again? (y/N) > ").upper() != "Y":
+                        exit()
+                else:
+                    break
 
-    #Show episode info
-    temp = PrettyTable(["Playlist Index", "Season", "Episode", "Language"])
-    for i in sorted(w_anime.config["playlist_info"]):
-        temp.add_row([i, w_anime.config["playlist_info"][i]["Season"], w_anime.config["playlist_info"][i]["Episode"],  w_anime.config["playlist_info"][i]["Language"]])
-    
-    print(temp)
+            #Choose download folder
+            if not filedialog:
+                w_anime.config["download_path"] = input("Choose a download folder > ")
+            else:
+                w_anime.config["download_path"] = filedialog.askdirectory(title = "Download folder")
 
-    #Episodes to download
-    print("Videos downloaded:", w_anime.config["downloaded"])
-    temp = input(f'''Videos to download > ''')
-    for i in temp.split(","):
-        w_anime.dl_episodes.extend(list(range(int(i.split("-")[0]), int(i.split("-")[1])+1)) if "-" in i else [int(i)])
+            #Choose output syntax
+            temp = input("Type in output syntax; Leave blank for default > ")
+            if temp:
+                w_anime.config["output_syntax"] = temp
+            else:
+                w_anime.config["output_syntax"] = "[%(playlist_index)s] %(series)s - S%(season_number)sE%(episode_number)s - %(episode)s.%(ext)s"
+
+            #Default YTDL options
+            w_anime.config["advanced"] = {
+            "postprocessors": [{'key': 'FFmpegEmbedSubtitle'}],
+            "ignoreerrors": True,
+            "nooverwrites": True,
+            "allsubtitles": True
+            }
+
+        else:
+            choice = int(choice)
+            w_anime.config = config["anime"][list(config["anime"])[choice]]
+
+        #Process YTDL options
+        for i, n in zip(arguments, range(len(arguments))):
+            if "-" in i:
+                w_anime.config["advanced"][i[i.index("-")+1:]] = arguments[n+1]
+
+        w_anime.ytdl_opts.update(w_anime.config["advanced"])
+
+        #Show episode info
+        temp = PrettyTable(["Playlist Index", "Season", "Episode", "Language"])
+        for i in sorted(w_anime.config["playlist_info"]):
+            temp.add_row([i, w_anime.config["playlist_info"][i]["Season"], w_anime.config["playlist_info"][i]["Episode"],  w_anime.config["playlist_info"][i]["Language"]])
+        
+        print(temp)
+
+        #Episodes to download
+        print("Videos downloaded:", w_anime.config["downloaded"])
+        temp = input(f'''Videos to download > ''')
+        for i in temp.split(","):
+            w_anime.dl_episodes.extend(list(range(int(i.split("-")[0]), int(i.split("-")[1])+1)) if "-" in i else [int(i)])
+
+        #Save current session
+        config["sessions"].append([w_anime.config["name"], w_anime.dl_episodes])
+        config["anime"][w_anime.config["name"]] = w_anime.config
+        with open(config_path, 'w') as config_file:
+            yaml.dump(config, config_file, default_flow_style=False)
+
+    #Download
+    w_anime.download(config["general"]["ffmpeg_location"])
+
+    #Remove current session
+    del config["sessions"][-1]
     for i in w_anime.dl_episodes:
         w_anime.config["downloaded"].append(i) if i not in w_anime.config["downloaded"] else None
-
-    w_anime.download(config["general"]["ffmpeg_location"])
 
     #Save config
     config["anime"][w_anime.config["name"]] = w_anime.config
