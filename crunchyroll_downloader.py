@@ -144,6 +144,8 @@ class Anime():
             "verbose": True if self.verbosity >= 3 else False
             })
 
+        self.ytdl_opts.update(self.config["advanced"])
+
         def hook(d):
             if d["status"] == "finished":
                 print(f'Finished downloading "{path.basename(d["filename"])}"')
@@ -299,7 +301,8 @@ if __name__ == '__main__':
             "postprocessors": [{'key': 'FFmpegEmbedSubtitle'}],
             "ignoreerrors": True,
             "nooverwrites": True,
-            "allsubtitles": True
+            "allsubtitles": True,
+            "continuedl": True
             }
 
         else:
