@@ -1,16 +1,17 @@
 # crunchyroll-dl
-**CURRENTLY NOT WORKING RELIABLY**
-
-Tested with Python 3.8.5 and youtube-dl 2020.9.20  
+Tested with Python 3.9.1 and youtube-dl 2021.1.16
 Required Modules: 'youtube-dl', 'PyYAML', 'PrettyTable'
 
 This program uses the crunchyroll extractor from youtube-dl.  
 It provides a CLI for downloading anime from Crunchyroll, displaying all videos with season, episode number and avaiable language.  
 Most importantly it uses multithreading to significantly speed up everything.
 
+By default up to ten threads are used, however 4-6 threads will probably saturate an average connection.
+
 ### Arguments:  
 '-un': Username for Crunchyroll login  
 '-pw': Password for Crunchyroll login  
+'-t' : Threads to use for downloading
 '-c' : Path to config file  
 '-v' : Verbosity [0 (Default) - 3]  
 '-nf': Don't use filedialog; Type in paths manually  
@@ -21,13 +22,17 @@ Most importantly it uses multithreading to significantly speed up everything.
                            Note: 'ffmpeg_location', 'outtmpl', 'username', 'password' and 'verbose' will get overwritten.
 
 ### Troubleshooting:
-- If items from a Playlist aren't in the table they are not available.
-  This most likely happens because you need Crunchyroll premium to watch them.
-- If you get the error "Not Available", the playlist returned by Crunchyroll was empty. This was most likely caused by region blocking. Maybe try using a VPN.
+- If items from a Playlist aren't shown, they are not available.
+  This most likely happens because you need Crunchyroll premium to watch them or they are region-restricted.
 - If you get the error "(HTTP 403) Forbidden" Crunchyroll rejected the request. This was most likely caused by IP blocking. Try a different VPN.
 
 ### Examples:
-Download subtitles:
+Download using 7 threads:
+```
+crunchyroll_downloader.py -t 7
+```
+
+Only download subtitles:
 ```
 crunchyroll_downloader.py -skip_download True
 ```
