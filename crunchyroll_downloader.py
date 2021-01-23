@@ -151,7 +151,7 @@ class Anime():
         self.update_config()
 
         # Get basic playlist info
-        playlist_info = self.playlist_ie._real_extract(w_anime.config["url"])
+        playlist_info = self.playlist_ie._real_extract(self.config["url"])
 
         # Check which parts of the playlist are available to the user (to reduce requests)
         ## The playlist_info["entries"] list is sorted by language and season
