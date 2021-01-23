@@ -43,11 +43,11 @@ class Logger(object):
 
     def debug(self, msg):
         self.output += msg
-        if self.verbosity > 1:
+        if self.verbosity > 2:
             print(msg)
 
     def warning(self, msg):
-        if self.verbosity > 0:
+        if self.verbosity > 1:
             print(msg)
 
     def error(self, msg):
@@ -111,11 +111,11 @@ class Anime():
 
         # Update config with new values
         self.ytdl_config.update({
-        "quiet": False if self.config["verbosity"] > 3 else True,
+        "quiet": False if self.config["verbosity"] > 4 else True,
         "username": self.config["username"],
         "password": self.config["password"],
         "logger": Logger(self.config["verbosity"]),
-        "verbose": True if self.config["verbosity"] > 2 else False,
+        "verbose": True if self.config["verbosity"] > 3 else False,
         "ffmpeg_location": self.config["ffmpeg_location"],
         "outtmpl": self.config["output"],
         })
@@ -151,7 +151,7 @@ class Anime():
         self.update_config()
 
         # Get basic playlist info
-        playlist_info = self.playlist_ie._real_extract("https://www.crunchyroll.com/that-time-i-got-reincarnated-as-a-slime")
+        playlist_info = self.playlist_ie._real_extract(w_anime.config["url"])
 
         # Check which parts of the playlist are available to the user (to reduce requests)
         ## The playlist_info["entries"] list is sorted by language and season
