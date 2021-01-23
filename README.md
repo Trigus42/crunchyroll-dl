@@ -1,5 +1,5 @@
 # crunchyroll-dl
-Tested with Python 3.9.1 and youtube-dl 2021.1.16
+Tested with Python 3.9.1 and youtube-dl 2021.1.16  
 Required Modules: 'youtube-dl', 'PyYAML', 'PrettyTable'
 
 This program uses the crunchyroll extractor from youtube-dl.  
@@ -11,7 +11,7 @@ By default up to ten threads are used, however 4-6 threads will probably saturat
 ### Arguments:  
 '-un': Username for Crunchyroll login  
 '-pw': Password for Crunchyroll login  
-'-t' : Threads to use for downloading
+'-t' : Threads to use for downloading  
 '-c' : Path to config file  
 '-v' : Verbosity [0 (Default) - 3]  
 '-nf': Don't use filedialog; Type in paths manually  
