@@ -1,21 +1,8 @@
 from sys import exit, argv as sys_argv, executable as sys_executable
-from os import path, name as os_name, system as os_system, _exit
 from subprocess import check_call, CalledProcessError
+from shutil import which
+import os
 import concurrent.futures
-from tkinter import Tk, filedialog
-
-###########
-
-def install(packages):
-    for package in packages:
-        try:
-            check_call([sys_executable, "-m", "pip", "install", "--user", package])
-        except CalledProcessError:
-            if os_name == "posix":
-                os_system("sudo apt install python3-pip -y")
-                check_call([sys_executable, "-m", "pip", "install", package])
-            else:
-                print("""Error: "pip" not installed.""")
 
 ###########
 
@@ -207,11 +194,36 @@ class Anime():
         downloader = youtube_dl.YoutubeDL(self.ytdl_config.copy())
         downloader.params.update({"progress_hooks": [self._hook]})
 
+        # print([video_dict["url"]], downloader.params)
+
         downloader.download([video_dict["url"]])
 
     def _hook(self, downloader):
-            if downloader["status"] == "finished":
-                print(f"Finished downloading ", path.basename(downloader["filename"]))
+        if downloader["status"] == "finished":
+            print(f"Finished downloading ", os.path.basename(downloader["filename"]))
+
+###########
+
+def install(packages):
+    for package in packages:
+        try:
+            check_call([sys_executable, "-m", "pip", "install", "--user", package])
+        except CalledProcessError:
+            if os.name == "posix":
+                os.system("sudo apt install python3-pip -y")
+                check_call([sys_executable, "-m", "pip", "install", package])
+            else:
+                print("Error: 'pip' not installed.")
+
+def save_config():
+    global config, w_anime
+
+    # Update global config from Anime instace
+    config["anime"].update({w_anime.config["title"]: w_anime.config})
+
+    # Write to config file
+    with open(config_path, "w") as config_file:
+        yaml.dump(config, config_file, default_flow_style=False)
 
 ###########
 
@@ -222,29 +234,32 @@ if __name__ == "__main__":
     if "-h" in arguments or "--help" in arguments:
         print(""""-un": Username for Crunchyroll login
 "-pw": Password for Crunchyroll login
+'-t' : Threads to use for downloading
 "-c" : Path to config file
-"-v" : Verbosity [0 (Default) - 3]
+"-v" : Verbosity [0 (Default) - 5]
 "-nf": Don"t use filedialog; Type in paths manually
 "-h" : Show this help
 
 "-<YouTube-DL option>" : You can use all youtube_dl.YoutubeDL options by just adding a leading "-" that can be found here: 
-                        https://github.com/ytdl-org/youtube-dl/blob/master/youtube_dl/YoutubeDL.py# L116-L323
-                        Note: "ffmpeg_location", "outtmpl", "username", "password" and "verbose" will get overwritten.
+                         https://github.com/ytdl-org/youtube-dl/blob/master/youtube_dl/YoutubeDL.py#L116-L323
+                         Note: "ffmpeg_location", "outtmpl", "username", "password" and "verbose" will get overwritten.
 """)
         exit()
 
     if "-c" in arguments:
         config_path = arguments.pop(arguments.index("-c")+1)
         arguments.remove("-c")
-        if not path.isfile(config_path):
-            config_path = path.join(path.dirname(__file__), "config.yml")
+        if not os.path.isfile(config_path):
+            config_path = os.path.join(os.path.dirname(__file__), "config.yml")
     else:
-        config_path = path.join(path.dirname(__file__), "config.yml")
+        config_path = os.path.join(os.path.dirname(__file__), "config.yml")
 
     # Read config
     try:
         with open(config_path, "r") as config_file:
             config = yaml.load(config_file, Loader=yaml.FullLoader)
+        if not "general" in config and "anime" in config:
+            assert False
     except:
         config = {
             "general":{
@@ -284,18 +299,36 @@ if __name__ == "__main__":
         arguments.remove("-nf")
         no_filedialog = True
     else:
-        no_filedialog = False
+        try:
+            from tkinter import Tk, filedialog
+            no_filedialog = False
 
-    # Hide Tkinter window
-    root = Tk()
-    root.withdraw()   
+            # Create and hide Tkinter window
+            root = Tk()
+            root.withdraw()  
+
+        except Exception as e:
+            print(str(e), "\nFalling back to manual input\n")
+            no_filedialog = True
+         
+    # Locate ffmpeg 
+    # Check if ffmpeg path is in config file and valid
+    if not config["general"]["ffmpeg_location"] or not os.path.isfile(config["general"]["ffmpeg_location"]):
+
+        PATH_ffmpeg = os.path.normpath(which("ffmpeg"))
+
+        # Check if ffmpeg executable is in the same directory as this script
+        if os.name != "nt" and os.path.isfile(os.path.join(os.path.dirname(__file__), "ffmpeg")):
+            config["general"]["ffmpeg_location"] = os.path.join(os.path.dirname(__file__), "ffmpeg")
+        elif os.name == "nt" and os.path.isfile(os.path.join(os.path.dirname(__file__), "ffmpeg.exe")):
+            config["general"]["ffmpeg_location"] = os.path.join(os.path.dirname(__file__), "ffmpeg.exe")
         
-    # Locate ffmpeg executable
-    if not config["general"]["ffmpeg_location"] or not path.isfile(config["general"]["ffmpeg_location"]):
-        if path.isfile(path.join(path.dirname(__file__), "ffmpeg.exe")):
-            config["general"]["ffmpeg_location"] = path.join(path.dirname(__file__), "ffmpeg.exe")
+        # Check if ffmpeg is in system PATH
+        elif PATH_ffmpeg and os.access(PATH_ffmpeg, os.X_OK):
+            config["general"]["ffmpeg_location"] = PATH_ffmpeg
+
         elif no_filedialog:
-            config["general"]["ffmpeg_location"] = input("Enter the path of the ffmpeg executable > ")
+            config["general"]["ffmpeg_location"] =  os.path.normpath(input("Enter the path of the ffmpeg executable > "))
         else:
             config["general"]["ffmpeg_location"] = filedialog.askopenfilename(title = "ffmpeg")
 
@@ -305,12 +338,19 @@ if __name__ == "__main__":
     anime.append(Anime())
     w_anime = anime[-1]
 
+    # Process YTDL options
+    for index, argument in enumerate(arguments):
+        if "-" in argument:
+            w_anime.config["custom"].update({argument: arguments[index+1]})
+
+    # Load some configuration from global into Anime instace
     w_anime.config["ffmpeg_location"] = config["general"]["ffmpeg_location"]
     w_anime.config["password"] = config["general"]["password"]
     w_anime.config["username"] = config["general"]["username"]
     if "downloaded" not in w_anime.config:
         w_anime.config["downloaded"] = []
 
+    # Restore unfinished sessions
     if "sessions" in config:
         if config["sessions"]:
             for i, j in enumerate(config["sessions"]):
@@ -319,10 +359,12 @@ if __name__ == "__main__":
             print("You've got some unfinished downloads:\n", temp)
             session_id = input("If you want to continue one, enter its ID > ")
 
-    if "session_id" in globals() and session_id != "":
+    if config["sessions"] and session_id != "":
         session = config["sessions"][int(session_id)]
         w_anime.config = config["anime"][session[0]]
         dl_index = session[1]
+
+    # If there are no sessions to restore or none was selected
     else:
         # Choose anime
         print("Choose an anime or enter a URL:")
@@ -349,10 +391,22 @@ if __name__ == "__main__":
                         exit()
                 else:
                     break
+            
+            # Save w_anime.get_info() results 
+            save_config()
+
+        else:
+            choice = int(choice)
+            # Restore config of chosen anime
+            w_anime.config = config["anime"][list(config["anime"])[choice]]
+
+
+        # Check if output path is set and valid
+        if not "output" in w_anime.config or not w_anime.config["output"] or not os.path.isdir(os.path.dirname(w_anime.config["output"])):
 
             # Choose download folder
-            if not filedialog:
-                download_path = input("Choose a download folder > ")
+            if no_filedialog:
+                download_path =  os.path.normpath(input("Choose a download folder > "))
             else:
                 download_path = filedialog.askdirectory(title = "Download folder")
 
@@ -364,16 +418,10 @@ if __name__ == "__main__":
                 output_syntax = "[%(playlist_index)s] %(series)s - S%(season_number)sE%(episode_number)s - %(episode)s.%(ext)s"
 
             # Compile to path
-            w_anime.config["output"] = path.join(download_path, output_syntax)
+            w_anime.config["output"] = os.path.join(download_path, output_syntax)
 
-        else:
-            choice = int(choice)
-            w_anime.config = config["anime"][list(config["anime"])[choice]]
-
-        # Process YTDL options
-        for index, argument in enumerate(arguments):
-            if "-" in argument:
-                w_anime.config["custom"].update({argument: arguments[index+1]})
+            # Save updated output path
+            save_config()
 
         # Show episode info
         w_anime.print_info()
@@ -387,13 +435,7 @@ if __name__ == "__main__":
         # Save session
         if [w_anime.config["title"], dl_index] not in config["sessions"]:
             config["sessions"].append([w_anime.config["title"], dl_index])
-
-        # Save config
-        config["anime"].update({w_anime.config["title"]: w_anime.config})
-
-        # Write to config file
-        with open(config_path, "w") as config_file:
-            yaml.dump(config, config_file, default_flow_style=False)
+            save_config()
 
     # Download
     w_anime.config["verbosity"] = verbosity
@@ -402,10 +444,11 @@ if __name__ == "__main__":
     for thread in concurrent.futures.as_completed(w_anime.dl_threads):
         pass
 
-    # Remove current session
+    # Remove current session and add downloaded episodes to list
     del config["sessions"][-1]
     for index in dl_index:
         w_anime.config["downloaded"].append(index) if index not in w_anime.config["downloaded"] else None
+    save_config()
 
     # Save config
     config["anime"][w_anime.config["title"]] = w_anime.config
