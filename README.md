@@ -13,7 +13,7 @@ By default up to ten threads are used, however 4-6 threads will probably saturat
 '-pw': Password for Crunchyroll login  
 '-t' : Threads to use for downloading  
 '-c' : Path to config file  
-'-v' : Verbosity [0 (Default) - 3]  
+'-v' : Verbosity [0 (Default) - 5]  
 '-nf': Don't use filedialog; Type in paths manually  
 '-h' : Show help  
 
