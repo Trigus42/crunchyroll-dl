@@ -315,7 +315,7 @@ if __name__ == "__main__":
     # Check if ffmpeg path is in config file and valid
     if not config["general"]["ffmpeg_location"] or not os.path.isfile(config["general"]["ffmpeg_location"]):
 
-        PATH_ffmpeg = os.path.normpath(which("ffmpeg"))
+        PATH_ffmpeg = which("ffmpeg")
 
         # Check if ffmpeg executable is in the same directory as this script
         if os.name != "nt" and os.path.isfile(os.path.join(os.path.dirname(__file__), "ffmpeg")):
@@ -324,8 +324,8 @@ if __name__ == "__main__":
             config["general"]["ffmpeg_location"] = os.path.join(os.path.dirname(__file__), "ffmpeg.exe")
         
         # Check if ffmpeg is in system PATH
-        elif PATH_ffmpeg and os.access(PATH_ffmpeg, os.X_OK):
-            config["general"]["ffmpeg_location"] = PATH_ffmpeg
+        elif PATH_ffmpeg and os.access(os.path.normpath(PATH_ffmpeg), os.X_OK):
+            config["general"]["ffmpeg_location"] = os.path.normpath(PATH_ffmpeg)
 
         elif no_filedialog:
             config["general"]["ffmpeg_location"] =  os.path.normpath(input("Enter the path of the ffmpeg executable > "))
