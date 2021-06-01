@@ -1,6 +1,8 @@
 from sys import exit, argv as sys_argv, executable as sys_executable
 from subprocess import check_call, CalledProcessError
 from shutil import which
+from urllib.parse import urlparse, urlunparse
+import re
 import os
 import concurrent.futures
 
@@ -225,6 +227,12 @@ def save_config():
     with open(config_path, "w") as config_file:
         yaml.dump(config, config_file, default_flow_style=False)
 
+def remove_lang_tag(url):
+    url_components = list(urlparse(url))
+    url_components[2] = path=re.sub(r"^\/[a-z]{2}\/", "", url_components[2])
+    return urlunparse(url_components)
+    
+
 ###########
 
 if __name__ == "__main__":
@@ -374,7 +382,7 @@ if __name__ == "__main__":
 
         # If user entered a URL
         if not choice.isnumeric():
-            w_anime.config["url"] = choice
+            w_anime.config["url"] = remove_lang_tag(choice)
 
             # Check if at least one episode is available
             while(True):
