@@ -8,6 +8,20 @@ import concurrent.futures
 
 ###########
 
+def install(packages):
+    for package in packages:
+        try:
+            check_call([sys_executable, "-m", "pip", "install", "--user", package])
+        except CalledProcessError:
+
+            if os.name == "posix":
+                os.system("sudo apt install python3-pip -y")
+                check_call([sys_executable, "-m", "pip", "install", package])
+            else:
+                print("Error: 'pip' not installed.")
+
+###########
+
 if __name__ == "__main__":
     try:
         import youtube_dl
@@ -205,17 +219,6 @@ class Anime():
             print(f"Finished downloading ", os.path.basename(downloader["filename"]))
 
 ###########
-
-def install(packages):
-    for package in packages:
-        try:
-            check_call([sys_executable, "-m", "pip", "install", "--user", package])
-        except CalledProcessError:
-            if os.name == "posix":
-                os.system("sudo apt install python3-pip -y")
-                check_call([sys_executable, "-m", "pip", "install", package])
-            else:
-                print("Error: 'pip' not installed.")
 
 def save_config():
     global config, w_anime
