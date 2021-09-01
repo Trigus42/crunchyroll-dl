@@ -1,8 +1,6 @@
 # crunchyroll-dl
 
-**Currently not working because of issues with the extractor**
-
-Tested with Python 3.9.1 and youtube-dl 2021.1.16  
+Tested with Python 3.9.1 and youtube-dl 2021.6.6  
 Required Modules: 'youtube-dl', 'PyYAML', 'PrettyTable'
 
 This program uses the crunchyroll extractor from youtube-dl.  

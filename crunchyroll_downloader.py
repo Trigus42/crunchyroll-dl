@@ -5,6 +5,7 @@ from urllib.parse import urlparse, urlunparse
 import re
 import os
 import concurrent.futures
+from bs4 import BeautifulSoup
 
 ###########
 
@@ -154,11 +155,20 @@ class Anime():
         self.update_config()
 
         # Get basic playlist info
-        playlist_info = self.playlist_ie._real_extract(self.config["url"])
+        if not self.config.get("html_path"):
+            try:
+                playlist_info = self.playlist_ie._real_extract(self.config["url"])
+                alternative_playlist_ie = False
+            # Workaround - HTTP Error 403
+            except youtube_dl.utils.ExtractorError:
+                alternative_playlist_ie = True
+                print(f"Could not download {self.config['url']}. Please download it manually.")
+                self.config["html_path"] = get_path(["cr.html", "cr.htm"])
+                playlist_info = {"entries": [ {"url": url} for url in flattened_list(load_urls_from_html(self.config["html_path"])) ] }
 
         # Check which parts of the playlist are available to the user (to reduce requests)
-        ## The playlist_info["entries"] list is sorted by language and season
-        ## Each season / sequence of episodes in one language begins with "/episode-1-" in its URL
+        # The playlist_info["entries"] list is sorted by language and season
+        # Each season / sequence of episodes in one language begins with "/episode-1-" in its URL
         if not self.check_all:
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_threads) as executor:
                 threads = []
@@ -168,6 +178,7 @@ class Anime():
                         threads.append(thread)
                 for thread in concurrent.futures.as_completed(threads):
                     result = thread.result()
+                    # result[0] contains the index, result[1] the data
                     playlist_info["entries"][result[0]].update(result[1])
 
         # Get detailed infos about the videos
@@ -175,25 +186,34 @@ class Anime():
             threads = []
             skip_part = False
             for index, video_dict in enumerate(playlist_info["entries"]):
-                # Skip because the info about the fist episodes of each section was already gathered (if self.check_all is False)
+                # Skip because the info about the fist episodes of each video
+                # sequence was already gathered (if self.check_all is False)
                 if not self.check_all and "/episode-1-" in video_dict["url"]:
-                    # If there has been an error, skip the rest of the section
+                    # If there has been an error, skip the rest of the sequence
                     skip_part = True if "error" in video_dict else False
                 elif not skip_part:
                         thread = executor.submit(self.video_info, index, video_dict["url"])
                         threads.append(thread)
             for thread in concurrent.futures.as_completed(threads):
                 result = thread.result()
+                # result[0] contains the index, result[1] the data
                 playlist_info["entries"][result[0]].update(result[1])
                 if not "error" in result[1]:
                     del playlist_info["entries"][result[0]]["formats"][1:]
 
         # Save to config
-        self.config.update({
-            "title": playlist_info["title"],
-            "id": playlist_info["id"],
-            "videos": playlist_info["entries"],
-        })
+        if alternative_playlist_ie:
+            self.config.update({
+                "title": playlist_info["entries"][0]["series"],
+                "id": playlist_info["entries"][0]["id"],
+                "videos": playlist_info["entries"],
+            })
+        else:
+            self.config.update({
+                "title": playlist_info["title"],
+                "id": playlist_info["id"],
+                "videos": playlist_info["entries"],
+            })
 
     def start_download(self, dl_index):
         self.update_config()
@@ -234,7 +254,61 @@ def remove_lang_tag(url):
     url_components = list(urlparse(url))
     url_components[2] = path=re.sub(r"^\/[a-z]{2}\/", "", url_components[2])
     return urlunparse(url_components)
+
+def load_urls_from_html(html_path):
+    """
+    Takes the path of a crunchyroll page's html file.
+    Returns a list of lists, each containing the links to all videos of one video sequence
+    (season and language), each sorted in ascending order.
+    """
+    res = []
+    with open(html_path, "r", encoding="utf-8") as html_file:
+        soup = BeautifulSoup(html_file, features="html.parser")
     
+    # Extract URLs
+    episode_sequences = soup.find_all("li", class_="season small-margin-bottom")
+    for index, episode_sequence in enumerate(episode_sequences):
+        episode_elements = episode_sequence.find_all("a", class_="portrait-element block-link titlefix episode")
+        urls = [ "https://www.crunchyroll.com" + episode_element["href"] for episode_element in episode_elements]
+        res.append(urls)
+
+    # Sort result (should be sorted already)
+    ep_number_regex = re.compile(r"(?<=\/episode-)\d*(?=-)")
+    for urls in res:
+        # Crunchyroll default sorts by newest, sorting is faster this way
+        urls.sort(key=lambda x: int(re.findall(ep_number_regex, x)[0]), reverse=True)
+        # Reverse so episode 1 is first
+        urls.reverse()
+
+    return res
+
+def get_path(file_names, use_filedialog=True, sys_path=False):
+        for file_name in file_names:
+            # Check if file is in the same directory as this script
+            if os.path.isfile(os.path.join(os.path.dirname(__file__), file_name)):
+                return os.path.join(os.path.dirname(__file__), file_name)
+            
+            if sys_path:
+                # Check if ffmpeg is in system PATH
+                file_path = which(file_name)
+                if file_path and os.access(os.path.normpath(file_path), os.X_OK):
+                    return os.path.normpath(file_path)
+
+        if not use_filedialog:
+            return os.path.normpath(input('Please enter the path to "{file_names[0]}"> '))
+        else:
+            return filedialog.askopenfilename(title = file_names[0])
+
+def flattened_list(data):
+    "Flatten list, maintaining it's order"
+    ret = []
+    for element in data:
+        if isinstance(element, list):
+            ret.extend(flattened_list(element))
+        else:
+            ret.append(element)
+    return ret
+
 
 ###########
 
@@ -248,7 +322,7 @@ if __name__ == "__main__":
 '-t' : Threads to use for downloading
 "-c" : Path to config file
 "-v" : Verbosity [0 (Default) - 5]
-"-nf": Don"t use filedialog; Type in paths manually
+"-nf": Don't use filedialog; Type in paths manually
 "-h" : Show this help
 
 "-<YouTube-DL option>" : You can use all youtube_dl.YoutubeDL options by just adding a leading "-" that can be found here: 
@@ -308,11 +382,11 @@ if __name__ == "__main__":
 
     if "-nf" in arguments:
         arguments.remove("-nf")
-        no_filedialog = True
+        use_filedialog = False
     else:
         try:
             from tkinter import Tk, filedialog
-            no_filedialog = False
+            use_filedialog = True
 
             # Create and hide Tkinter window
             root = Tk()
@@ -320,28 +394,15 @@ if __name__ == "__main__":
 
         except Exception as e:
             print(str(e), "\nFalling back to manual input\n")
-            no_filedialog = True
+            use_filedialog = False
          
-    # Locate ffmpeg 
+    # Locate ffmpeg
     # Check if ffmpeg path is in config file and valid
     if not config["general"]["ffmpeg_location"] or not os.path.isfile(config["general"]["ffmpeg_location"]):
-
-        PATH_ffmpeg = which("ffmpeg")
-
-        # Check if ffmpeg executable is in the same directory as this script
-        if os.name != "nt" and os.path.isfile(os.path.join(os.path.dirname(__file__), "ffmpeg")):
-            config["general"]["ffmpeg_location"] = os.path.join(os.path.dirname(__file__), "ffmpeg")
-        elif os.name == "nt" and os.path.isfile(os.path.join(os.path.dirname(__file__), "ffmpeg.exe")):
-            config["general"]["ffmpeg_location"] = os.path.join(os.path.dirname(__file__), "ffmpeg.exe")
-        
-        # Check if ffmpeg is in system PATH
-        elif PATH_ffmpeg and os.access(os.path.normpath(PATH_ffmpeg), os.X_OK):
-            config["general"]["ffmpeg_location"] = os.path.normpath(PATH_ffmpeg)
-
-        elif no_filedialog:
-            config["general"]["ffmpeg_location"] =  os.path.normpath(input("Enter the path of the ffmpeg executable > "))
+        if os.name != "nt":
+            config["general"]["ffmpeg_location"] = get_path(["ffmpeg"], use_filedialog, sys_path=True)
         else:
-            config["general"]["ffmpeg_location"] = filedialog.askopenfilename(title = "ffmpeg")
+            config["general"]["ffmpeg_location"] = get_path(["ffmpeg.exe"], use_filedialog, sys_path=True)
 
     anime = []
 
@@ -354,7 +415,7 @@ if __name__ == "__main__":
         if "-" in argument:
             w_anime.config["custom"].update({argument: arguments[index+1]})
 
-    # Load some configuration from global into Anime instace
+    # Load some configuration from global into Anime instance
     w_anime.config["ffmpeg_location"] = config["general"]["ffmpeg_location"]
     w_anime.config["password"] = config["general"]["password"]
     w_anime.config["username"] = config["general"]["username"]
@@ -378,10 +439,12 @@ if __name__ == "__main__":
     # If there are no sessions to restore or none was selected
     else:
         # Choose anime
-        print("Choose an anime or enter a URL:")
+        
+        temp = PrettyTable(["ID", "Anime"])
         for number, name in enumerate(config["anime"]):
-            print(f"{number}. {name}")
-        choice = input("> ")
+            temp.add_row([number, name])
+        print(temp)
+        choice = input("Choose an anime by entering it's ID or enter a URL > ")
 
         # If user entered a URL
         if not choice.isnumeric():
@@ -416,7 +479,7 @@ if __name__ == "__main__":
         if not "output" in w_anime.config or not w_anime.config["output"] or not os.path.isdir(os.path.dirname(w_anime.config["output"])):
 
             # Choose download folder
-            if no_filedialog:
+            if not use_filedialog:
                 download_path =  os.path.normpath(input("Choose a download folder > "))
             else:
                 download_path = filedialog.askdirectory(title = "Download folder")
