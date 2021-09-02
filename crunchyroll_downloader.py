@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 from sys import exit, argv as sys_argv, executable as sys_executable
 from subprocess import check_call, CalledProcessError
 from shutil import which
@@ -134,7 +136,7 @@ class Anime():
         table = PrettyTable(["Index", "Season", "Episode", "Language"])
 
         skip_part = False
-        for index, video_dict in enumerate(self.config["videos"]):
+        for index, video_dict in sorted(self.config["videos"].items(), key=lambda x: int(x[0])):
             if "/episode-1-" in video_dict["url"]:
                 skip_part = True if "error" in video_dict else False
                 if not skip_part:
@@ -153,67 +155,89 @@ class Anime():
         """
 
         self.update_config()
+        playlist_info = {}
 
         # Get basic playlist info
         if not self.config.get("html_path"):
             try:
-                playlist_info = self.playlist_ie._real_extract(self.config["url"])
-                alternative_playlist_ie = False
+                playlist_ie_return = self.playlist_ie._real_extract(self.config["url"])["entries"]
+                playlist_info.update({
+                    "title": playlist_ie_return["title"],
+                    "id": playlist_ie_return["id"],
+                    "urls": [entry["url"] for entry in playlist_ie_return]
+                    })
             # Workaround - HTTP Error 403
             except youtube_dl.utils.ExtractorError:
-                alternative_playlist_ie = True
-                print(f"Could not download {self.config['url']}. Please download it manually.")
-                self.config["html_path"] = get_path(["cr.html", "cr.htm"])
-                playlist_info = {"entries": [ {"url": url} for url in flattened_list(load_urls_from_html(self.config["html_path"])) ] }
+                
+                print(f"Could not access {self.config['url']}. Please download the page manually.")
+                self.config["html_path"] = get_path(["cr.html", "cr.htm"], use_filedialog, msg="Please enter the path of the html file > ")
+                playlist_info.update({
+                    "urls": flattened_list(load_urls_from_html(self.config["html_path"]))
+                    })
+        else:
+            playlist_info.update({"urls": flattened_list(load_urls_from_html(self.config["html_path"]))})
 
         # Check which parts of the playlist are available to the user (to reduce requests)
-        # The playlist_info["entries"] list is sorted by language and season
+        # The playlist_info["urls"] list are is sorted by language and season
         # Each season / sequence of episodes in one language begins with "/episode-1-" in its URL
         if not self.check_all:
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_threads) as executor:
                 threads = []
-                for index, video_dict in enumerate(playlist_info["entries"]):
-                    if "/episode-1-" in video_dict["url"]:
-                        thread = executor.submit(self.video_info, index, video_dict["url"])
+                for index, url in enumerate(playlist_info["urls"]):
+                    if "/episode-1-" in url:
+                        thread = executor.submit(self.video_info, index, url)
                         threads.append(thread)
+                playlist_info["entries"] = {}
                 for thread in concurrent.futures.as_completed(threads):
                     result = thread.result()
-                    # result[0] contains the index, result[1] the data
-                    playlist_info["entries"][result[0]].update(result[1])
+                    # result[0] contains the index to the corresponding element in playlist_info["urls"],
+                    # result[1] the data from self.video_info()
+                    playlist_info["entries"].update({
+                        result[0]: result[1]
+                        })
+                    playlist_info["entries"][result[0]].update({
+                        "url": playlist_info["urls"][result[0]]
+                        })
 
         # Get detailed infos about the videos
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_threads) as executor:
             threads = []
             skip_part = False
-            for index, video_dict in enumerate(playlist_info["entries"]):
+            for index, url in enumerate(playlist_info["urls"]):
                 # Skip because the info about the fist episodes of each video
                 # sequence was already gathered (if self.check_all is False)
-                if not self.check_all and "/episode-1-" in video_dict["url"]:
+                if not self.check_all and "/episode-1-" in url:
                     # If there has been an error, skip the rest of the sequence
-                    skip_part = True if "error" in video_dict else False
+                    skip_part = True if "error" in playlist_info["entries"].get(index) else False
                 elif not skip_part:
-                        thread = executor.submit(self.video_info, index, video_dict["url"])
-                        threads.append(thread)
+                    thread = executor.submit(self.video_info, index, url)
+                    threads.append(thread)
             for thread in concurrent.futures.as_completed(threads):
                 result = thread.result()
-                # result[0] contains the index, result[1] the data
-                playlist_info["entries"][result[0]].update(result[1])
+                # result[0] contains the index to the corresponding element in playlist_info["urls"],
+                # result[1] the data from self.video_info()
+                playlist_info["entries"].update({
+                    result[0]: result[1]
+                    })
+                playlist_info["entries"][result[0]].update({
+                    "url": playlist_info["urls"][result[0]],
+                    "playlist_index": result[0]
+                    })
                 if not "error" in result[1]:
                     del playlist_info["entries"][result[0]]["formats"][1:]
 
         # Save to config
-        if alternative_playlist_ie:
-            self.config.update({
-                "title": playlist_info["entries"][0]["series"],
-                "id": playlist_info["entries"][0]["id"],
-                "videos": playlist_info["entries"],
-            })
-        else:
-            self.config.update({
-                "title": playlist_info["title"],
-                "id": playlist_info["id"],
-                "videos": playlist_info["entries"],
-            })
+        self.config.update({"videos": playlist_info["entries"]})
+
+        # Set tile and an unique id if not already set
+        if not (self.config["title"] and self.config["id"]):
+            for index, video in playlist_info["entries"].items():
+                if "series" in video.keys() and "id" in video.keys():
+                    self.config.update({
+                        "title": playlist_info["entries"][index]["series"],
+                        "id": playlist_info["entries"][index]["id"]
+                    })
+                    break
 
     def start_download(self, dl_index):
         self.update_config()
@@ -226,11 +250,12 @@ class Anime():
                 self.dl_threads.append(thread)
 
     def _download(self, video_dict):
-        # Create a new downloader object with copy of current config and self._hook as hook
-        downloader = youtube_dl.YoutubeDL(self.ytdl_config.copy())
-        downloader.params.update({"progress_hooks": [self._hook]})
+        ytdl_config = self.ytdl_config.copy()
+        ytdl_config["outtmpl"] = ytdl_config["outtmpl"].replace("%(playlist_index)s", str(video_dict['playlist_index']))
 
-        # print([video_dict["url"]], downloader.params)
+        # Create a new downloader object with copy of current config and self._hook as hook
+        downloader = youtube_dl.YoutubeDL(ytdl_config)
+        downloader.params.update({"progress_hooks": [self._hook]})
 
         downloader.download([video_dict["url"]])
 
@@ -273,31 +298,33 @@ def load_urls_from_html(html_path):
         res.append(urls)
 
     # Sort result (should be sorted already)
-    ep_number_regex = re.compile(r"(?<=\/episode-)\d*(?=-)")
+    ep_number_regex = re.compile(r"(?<=\/episode-)(\d*)(\.){0,1}(\d*)(?=-)")
     for urls in res:
         # Crunchyroll default sorts by newest, sorting is faster this way
-        urls.sort(key=lambda x: int(re.findall(ep_number_regex, x)[0]), reverse=True)
+        urls.sort(key=lambda x: int("".join(re.findall(ep_number_regex, x)[0])), reverse=True)
         # Reverse so episode 1 is first
         urls.reverse()
 
     return res
 
-def get_path(file_names, use_filedialog=True, sys_path=False):
-        for file_name in file_names:
-            # Check if file is in the same directory as this script
-            if os.path.isfile(os.path.join(os.path.dirname(__file__), file_name)):
-                return os.path.join(os.path.dirname(__file__), file_name)
-            
-            if sys_path:
-                # Check if ffmpeg is in system PATH
-                file_path = which(file_name)
-                if file_path and os.access(os.path.normpath(file_path), os.X_OK):
-                    return os.path.normpath(file_path)
+def get_path(file_names=[], use_filedialog=False, sys_path=False, msg=None):
+    for file_name in file_names:
+        # Check if file is in the same directory as this script
+        if os.path.isfile(os.path.join(os.path.dirname(__file__), file_name)):
+            return os.path.join(os.path.dirname(__file__), file_name)
+        
+        if sys_path:
+            # Check if ffmpeg is in system PATH
+            file_path = which(file_name)
+            if file_path and os.access(os.path.normpath(file_path), os.X_OK):
+                return os.path.normpath(file_path)
 
-        if not use_filedialog:
-            return os.path.normpath(input('Please enter the path to "{file_names[0]}"> '))
-        else:
-            return filedialog.askopenfilename(title = file_names[0])
+    if not use_filedialog:
+        if not msg:
+            msg = f'Please enter the path to "{file_names[0]}"> '
+        return os.path.normpath(input(msg).replace('"', '').replace("'", ""))
+    else:
+        return filedialog.askopenfilename(title = file_names[0])
 
 def flattened_list(data):
     "Flatten list, maintaining it's order"
@@ -400,9 +427,9 @@ if __name__ == "__main__":
     # Check if ffmpeg path is in config file and valid
     if not config["general"]["ffmpeg_location"] or not os.path.isfile(config["general"]["ffmpeg_location"]):
         if os.name != "nt":
-            config["general"]["ffmpeg_location"] = get_path(["ffmpeg"], use_filedialog, sys_path=True)
+            config["general"]["ffmpeg_location"] = get_path(["ffmpeg"],  use_filedialog, sys_path=True, msg="Please enter the path of the ffmpeg executable > ")
         else:
-            config["general"]["ffmpeg_location"] = get_path(["ffmpeg.exe"], use_filedialog, sys_path=True)
+            config["general"]["ffmpeg_location"] = get_path(["ffmpeg.exe"], use_filedialog, sys_path=True, msg="Please enter the path of the ffmpeg executable > ")
 
     anime = []
 
@@ -455,9 +482,10 @@ if __name__ == "__main__":
                 w_anime.get_info()
                 
                 error = True
-                for video_dict in w_anime.config["videos"]:
-                    if not "error" in video_dict:
+                for video_dict in w_anime.config["videos"].values():
+                    if not "error" in video_dict.keys():
                         error = False
+                        break
 
                 if error:
                     w_anime.print_info()
@@ -480,7 +508,7 @@ if __name__ == "__main__":
 
             # Choose download folder
             if not use_filedialog:
-                download_path =  os.path.normpath(input("Choose a download folder > "))
+                download_path =  os.path.normpath(input("Choose a download folder > ").replace('"', '').replace("'", ""))
             else:
                 download_path = filedialog.askdirectory(title = "Download folder")
 
@@ -503,9 +531,14 @@ if __name__ == "__main__":
         # Episodes to download
         print("Videos downloaded:", w_anime.config["downloaded"])
         temp = input("Videos to download > ")
-        for i in temp.split(","):
-            dl_index = list(range(int(i.split("-")[0]), int(i.split("-")[1])+1)) if "-" in i else [int(i)]
-
+        if temp:
+            dl_index = []
+            for i in temp.split(","):
+                dl_index.extend(list(range(int(i.split("-")[0]), int(i.split("-")[1])+1)) if "-" in i else [int(i)])
+        else:
+            print("\nNo Video specified.. Exiting")
+            exit()
+            
         # Save session
         if [w_anime.config["title"], dl_index] not in config["sessions"]:
             config["sessions"].append([w_anime.config["title"], dl_index])

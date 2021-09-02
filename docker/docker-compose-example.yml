@@ -1,0 +1,21 @@
+version: "3.3"
+
+services:
+  crunchyroll-dl:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    tty: true 
+    container_name: crunchyroll-dl
+    environment:
+      - UNPRIVILEGED=yes
+    volumes:
+      - "./downloads/:/downloads"
+      - "./html:/html"
+      - "./wg0.conf:/config/wireguard/wg0.conf"
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1

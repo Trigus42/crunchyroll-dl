@@ -1,7 +1,7 @@
 # crunchyroll-dl
 
 Tested with Python 3.9.1 and youtube-dl 2021.6.6  
-Required Modules: 'youtube-dl', 'PyYAML', 'PrettyTable'
+Required Modules: 'youtube-dl', 'PyYAML', 'PrettyTable', 'bs4'
 
 This program uses the crunchyroll extractor from youtube-dl.  
 It provides a CLI for downloading anime from Crunchyroll, displaying all videos with season, episode number and avaiable language.  
@@ -30,10 +30,10 @@ By default up to ten threads are used, however 4-6 threads will probably saturat
 ### Examples:
 Download using 7 threads:
 ```
-crunchyroll_downloader.py -t 7
+main.py -t 7
 ```
 
 Only download subtitles:
 ```
-crunchyroll_downloader.py -skip_download True
+main.py -skip_download True
 ```
