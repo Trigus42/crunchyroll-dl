@@ -42,7 +42,7 @@ class Logger(object):
     def error(self, msg):
         if self.verbosity > 0:
             print(msg)
-
+            
 class Anime():
     def __init__(self):
         self.downloader = youtube_dl.YoutubeDL()
@@ -83,6 +83,7 @@ class Anime():
         self.check_all = False
         self.max_threads = 50
         self.max_dl_threads = 10
+        self.use_filedialog = False
 
         # Current download threads
         self.dl_threads = []
@@ -143,17 +144,16 @@ class Anime():
         # Get basic playlist info
         if not self.config.get("html_path"):
             try:
-                playlist_ie_return = self.playlist_ie._real_extract(self.config["url"])["entries"]
+                playlist_ie_return = self.playlist_ie._real_extract(self.config["url"])
                 playlist_info.update({
                     "title": playlist_ie_return["title"],
                     "id": playlist_ie_return["id"],
-                    "urls": [entry["url"] for entry in playlist_ie_return]
+                    "urls": [entry["url"] for entry in playlist_ie_return["entries"]]
                     })
             # Workaround - HTTP Error 403
             except youtube_dl.utils.ExtractorError:
-                
                 print(f"Could not access {self.config['url']}. Please download the page manually.")
-                self.config["html_path"] = get_path(["cr.html", "cr.htm"], use_filedialog, msg="Please enter the path of the html file > ")
+                self.config["html_path"] = get_path(["cr.html", "cr.htm"], self.use_filedialog, msg="Please enter the path of the html file > ")
                 playlist_info.update({
                     "urls": flattened_list(load_urls_from_html(self.config["html_path"]))
                     })
@@ -191,7 +191,12 @@ class Anime():
                 # sequence was already gathered (if self.check_all is False)
                 if not self.check_all and "/episode-1-" in url:
                     # If there has been an error, skip the rest of the sequence
-                    skip_part = True if "error" in playlist_info["entries"].get(index) else False
+                    if not "error" in playlist_info["entries"].get(index):
+                        skip_part = False
+                        thread = executor.submit(self.video_info, index, url)
+                        threads.append(thread)
+                    else:
+                        skip_part = True
                 elif not skip_part:
                     thread = executor.submit(self.video_info, index, url)
                     threads.append(thread)
@@ -248,11 +253,9 @@ class Anime():
 
 ###########
 
-def save_config():
-    global config, w_anime
-
+def save_config(config, anime, config_path):
     # Update global config from Anime instace
-    config["anime"].update({w_anime.config["title"]: w_anime.config})
+    config["anime"].update({anime.config["title"]: anime.config})
 
     # Write to config file
     with open(config_path, "w") as config_file:
@@ -319,10 +322,142 @@ def flattened_list(data):
             ret.append(element)
     return ret
 
-
 ###########
 
-if __name__ == "__main__":
+def session(config, config_path, arguments=[], verbosity=1, use_filedialog=False):  
+    anime = []
+
+    # Add new anime object to anime list; define the new entry as working anime
+    anime.append(Anime())
+    w_anime = anime[-1]
+
+    # Process YTDL options
+    for index, argument in enumerate(arguments):
+        if "-" in argument:
+            w_anime.config["custom"].update({argument: arguments[index+1]})
+
+    # Load some configuration from global into Anime instance
+    w_anime.use_filedialog = use_filedialog
+    w_anime.config["ffmpeg_location"] = config["general"]["ffmpeg_location"]
+    w_anime.config["password"] = config["general"]["password"]
+    w_anime.config["username"] = config["general"]["username"]
+    if "downloaded" not in w_anime.config:
+        w_anime.config["downloaded"] = []
+
+    # Restore unfinished sessions
+    if "sessions" in config:
+        if config["sessions"]:
+            for i, j in enumerate(config["sessions"]):
+                temp = PrettyTable(["ID", "Anime", "Episodes"])
+                temp.add_row([i, *j])
+            print("You've got some unfinished downloads:\n", temp)
+            session_id = input("If you want to continue one, enter its ID > ")
+
+    if config["sessions"] and session_id != "":
+        session = config["sessions"][int(session_id)]
+        w_anime.config = config["anime"][session[0]]
+        dl_index = session[1]
+
+    # If there are no sessions to restore or none was selected
+    else:
+        # Choose anime
+        
+        temp = PrettyTable(["ID", "Anime"])
+        for number, name in enumerate(config["anime"]):
+            temp.add_row([number, name])
+        print(temp)
+        choice = input("Choose an anime by entering it's ID or enter a URL > ")
+
+        # If user entered a URL
+        if not choice.isnumeric():
+            w_anime.config["url"] = remove_lang_tag(choice)
+
+            # Check if at least one episode is available
+            while(True):
+                w_anime.get_info()
+                
+                error = True
+                for video_dict in w_anime.config["videos"].values():
+                    if not "error" in video_dict.keys():
+                        error = False
+                        break
+
+                if error:
+                    w_anime.print_info()
+                    if input("Try again? (y/N) > ").upper() != "Y":
+                        exit()
+                else:
+                    break
+            
+            # Save w_anime.get_info() results 
+            save_config(config, w_anime, config_path)
+
+        else:
+            choice = int(choice)
+            # Restore config of chosen anime
+            w_anime.config = config["anime"][list(config["anime"])[choice]]
+
+
+        # Check if output path is set and valid
+        if not "output" in w_anime.config or not w_anime.config["output"] or not os.path.isdir(os.path.dirname(w_anime.config["output"])):
+
+            # Choose download folder
+            if not use_filedialog:
+                download_path =  os.path.normpath(input("Choose a download folder > ").replace('"', '').replace("'", ""))
+            else:
+                download_path = filedialog.askdirectory(title = "Download folder")
+
+            # Choose output syntax
+            temp = input("Type in output syntax; Leave blank for default > ")
+            if temp:
+                output_syntax = temp
+            else:
+                output_syntax = "[%(playlist_index)s] %(series)s - S%(season_number)sE%(episode_number)s - %(episode)s.%(ext)s"
+
+            # Compile to path
+            w_anime.config["output"] = os.path.join(download_path, output_syntax)
+
+            # Save updated output path
+            save_config(config, w_anime, config_path)
+
+        # Show episode info
+        w_anime.print_info()
+
+        # Episodes to download
+        print("Videos downloaded:", w_anime.config["downloaded"])
+        temp = input("Videos to download (Index) > ")
+        if temp:
+            dl_index = []
+            for i in temp.split(","):
+                dl_index.extend(list(range(int(i.split("-")[0]), int(i.split("-")[1])+1)) if "-" in i else [int(i)])
+        else:
+            print("\nNo Video specified.. Exiting")
+            exit()
+            
+        # Save session
+        if [w_anime.config["title"], dl_index] not in config["sessions"]:
+            config["sessions"].append([w_anime.config["title"], dl_index])
+            save_config(config, w_anime, config_path)
+
+    # Download
+    w_anime.config["verbosity"] = verbosity
+    w_anime.max_dl_threads = config["general"]["max_dl_threads"]
+    w_anime.start_download(dl_index)
+    for thread in concurrent.futures.as_completed(w_anime.dl_threads):
+        pass
+
+    # Remove current session and add downloaded episodes to list
+    del config["sessions"][-1]
+    for index in dl_index:
+        w_anime.config["downloaded"].append(index) if index not in w_anime.config["downloaded"] else None
+    save_config(config, w_anime, config_path)
+
+    # Save config
+    config["anime"][w_anime.config["title"]] = w_anime.config
+    with open(config_path, "w") as config_file:
+        yaml.dump(config, config_file, default_flow_style=False)
+
+def main():
     # Process Arguments
     arguments = sys_argv[1:]
 
@@ -395,6 +530,7 @@ if __name__ == "__main__":
         use_filedialog = False
     else:
         try:
+            global Tk, filedialog
             from tkinter import Tk, filedialog
             use_filedialog = True
 
@@ -405,7 +541,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(str(e), "\nFalling back to manual input\n")
             use_filedialog = False
-         
+
     # Locate ffmpeg
     # Check if ffmpeg path is in config file and valid
     if not config["general"]["ffmpeg_location"] or not os.path.isfile(config["general"]["ffmpeg_location"]):
@@ -414,133 +550,7 @@ if __name__ == "__main__":
         else:
             config["general"]["ffmpeg_location"] = get_path(["ffmpeg.exe"], use_filedialog, sys_path=True, msg="Please enter the path of the ffmpeg executable > ")
 
-    anime = []
+    session(config, config_path, arguments, verbosity, use_filedialog)
 
-    # Add new anime object to anime list; define the new entry as working anime
-    anime.append(Anime())
-    w_anime = anime[-1]
-
-    # Process YTDL options
-    for index, argument in enumerate(arguments):
-        if "-" in argument:
-            w_anime.config["custom"].update({argument: arguments[index+1]})
-
-    # Load some configuration from global into Anime instance
-    w_anime.config["ffmpeg_location"] = config["general"]["ffmpeg_location"]
-    w_anime.config["password"] = config["general"]["password"]
-    w_anime.config["username"] = config["general"]["username"]
-    if "downloaded" not in w_anime.config:
-        w_anime.config["downloaded"] = []
-
-    # Restore unfinished sessions
-    if "sessions" in config:
-        if config["sessions"]:
-            for i, j in enumerate(config["sessions"]):
-                temp = PrettyTable(["ID", "Anime", "Episodes"])
-                temp.add_row([i, *j])
-            print("You've got some unfinished downloads:\n", temp)
-            session_id = input("If you want to continue one, enter its ID > ")
-
-    if config["sessions"] and session_id != "":
-        session = config["sessions"][int(session_id)]
-        w_anime.config = config["anime"][session[0]]
-        dl_index = session[1]
-
-    # If there are no sessions to restore or none was selected
-    else:
-        # Choose anime
-        
-        temp = PrettyTable(["ID", "Anime"])
-        for number, name in enumerate(config["anime"]):
-            temp.add_row([number, name])
-        print(temp)
-        choice = input("Choose an anime by entering it's ID or enter a URL > ")
-
-        # If user entered a URL
-        if not choice.isnumeric():
-            w_anime.config["url"] = remove_lang_tag(choice)
-
-            # Check if at least one episode is available
-            while(True):
-                w_anime.get_info()
-                
-                error = True
-                for video_dict in w_anime.config["videos"].values():
-                    if not "error" in video_dict.keys():
-                        error = False
-                        break
-
-                if error:
-                    w_anime.print_info()
-                    if input("Try again? (y/N) > ").upper() != "Y":
-                        exit()
-                else:
-                    break
-            
-            # Save w_anime.get_info() results 
-            save_config()
-
-        else:
-            choice = int(choice)
-            # Restore config of chosen anime
-            w_anime.config = config["anime"][list(config["anime"])[choice]]
-
-
-        # Check if output path is set and valid
-        if not "output" in w_anime.config or not w_anime.config["output"] or not os.path.isdir(os.path.dirname(w_anime.config["output"])):
-
-            # Choose download folder
-            if not use_filedialog:
-                download_path =  os.path.normpath(input("Choose a download folder > ").replace('"', '').replace("'", ""))
-            else:
-                download_path = filedialog.askdirectory(title = "Download folder")
-
-            # Choose output syntax
-            temp = input("Type in output syntax; Leave blank for default > ")
-            if temp:
-                output_syntax = temp
-            else:
-                output_syntax = "[%(playlist_index)s] %(series)s - S%(season_number)sE%(episode_number)s - %(episode)s.%(ext)s"
-
-            # Compile to path
-            w_anime.config["output"] = os.path.join(download_path, output_syntax)
-
-            # Save updated output path
-            save_config()
-
-        # Show episode info
-        w_anime.print_info()
-
-        # Episodes to download
-        print("Videos downloaded:", w_anime.config["downloaded"])
-        temp = input("Videos to download > ")
-        if temp:
-            dl_index = []
-            for i in temp.split(","):
-                dl_index.extend(list(range(int(i.split("-")[0]), int(i.split("-")[1])+1)) if "-" in i else [int(i)])
-        else:
-            print("\nNo Video specified.. Exiting")
-            exit()
-            
-        # Save session
-        if [w_anime.config["title"], dl_index] not in config["sessions"]:
-            config["sessions"].append([w_anime.config["title"], dl_index])
-            save_config()
-
-    # Download
-    w_anime.config["verbosity"] = verbosity
-    w_anime.max_dl_threads = config["general"]["max_dl_threads"]
-    w_anime.start_download(dl_index)
-    for thread in concurrent.futures.as_completed(w_anime.dl_threads):
-        pass
-
-    # Remove current session and add downloaded episodes to list
-    del config["sessions"][-1]
-    for index in dl_index:
-        w_anime.config["downloaded"].append(index) if index not in w_anime.config["downloaded"] else None
-    save_config()
-
-    # Save config
-    config["anime"][w_anime.config["title"]] = w_anime.config
-    with open(config_path, "w") as config_file:
-        yaml.dump(config, config_file, default_flow_style=False)
+if __name__ == "__main__":
+    main()
