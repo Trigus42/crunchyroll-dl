@@ -7,21 +7,6 @@ from urllib.parse import urlparse, urlunparse
 import re
 import os
 import concurrent.futures
-from bs4 import BeautifulSoup
-
-###########
-
-def install(packages):
-    for package in packages:
-        try:
-            check_call([sys_executable, "-m", "pip", "install", "--user", package])
-        except CalledProcessError:
-
-            if os.name == "posix":
-                os.system("sudo apt install python3-pip -y")
-                check_call([sys_executable, "-m", "pip", "install", package])
-            else:
-                print("Error: 'pip' not installed.")
 
 ###########
 
@@ -30,15 +15,13 @@ if __name__ == "__main__":
         import youtube_dl
         import yaml
         from prettytable import PrettyTable
-    except ModuleNotFoundError:
-        print("Required modules: 'youtube_dl', 'PyYAML', 'PrettyTable'")
-        if input("Do you want to install them now? (y/N): ").upper() == "Y":
-            install(["youtube_dl", "PyYAML", "PrettyTable"])
-        if not sys_argv[1:]:
-            input("\nDone")
+        from bs4 import BeautifulSoup
+    except ModuleNotFoundError as e:
+        print("Some required modules were not found:\n", e, "\n\nPlease ensure all modules listed in requirements.txt are installed.")
         exit()
 else:
     import youtube_dl
+    from bs4 import BeautifulSoup
 
 ###########
 

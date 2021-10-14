@@ -1,0 +1,4 @@
+beautifulsoup4
+prettytable
+PyYAML
+youtube-dl
