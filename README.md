@@ -4,6 +4,13 @@ This script uses the crunchyroll extractor from youtube-dl.
 It provides a CLI for downloading anime from Crunchyroll, displaying all videos with season, episode number and avaiable language.  
 Most importantly it uses multithreading to significantly speed up everything.
 
+### Quick-start
+
+- Get ffmpeg
+- Download this Repo
+- Install requirements using `pip3 install -r requirements.txt`
+- Start main.py
+
 ### Arguments:  
 | Argument | Description |
 |----------|----------|
